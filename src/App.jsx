@@ -1180,8 +1180,6 @@ body::before {
   .authTitleNew{ font-size: 20px; }
   .authCardNew{ padding: 16px; }
 }
-    `}</style>
-  );
 }
 /* === FIX MOBILE INPUT AUTO ZOOM (iOS / Android) === */
 input,
@@ -1194,4 +1192,7 @@ textarea,
   font-size: 16px !important;
 }
 
+
+    `}</style>
+  );
 

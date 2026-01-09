@@ -51,7 +51,13 @@ function toCsv(rows) {
   const lines = [
     header.join(","),
     ...rows.map((r) =>
-      [escape(dateKey(r.date)), escape(r.done), escape(r.total), escape(r.percent), escape(r.fullDone ? "yes" : "no")].join(",")
+      [
+        escape(dateKey(r.date)),
+        escape(r.done),
+        escape(r.total),
+        escape(r.percent),
+        escape(r.fullDone ? "yes" : "no"),
+      ].join(",")
     ),
   ];
   return lines.join("\n");
@@ -97,11 +103,12 @@ function Modal({ open, title, desc, confirmText = "Ya", cancelText = "Batal", on
         <div className="modalTitle">{title}</div>
         {desc ? <div className="modalDesc">{desc}</div> : null}
         <div className="modalActions">
-          <button className="btn" onClick={onClose}>
+          <button className="btn" onClick={onClose} type="button">
             {cancelText}
           </button>
           <button
             className="btn primary"
+            type="button"
             onClick={() => {
               onConfirm?.();
               onClose?.();
@@ -161,6 +168,9 @@ function AuthCard() {
             <input
               className="authInputNew"
               type="email"
+              inputMode="email"
+              autoCapitalize="none"
+              autoCorrect="off"
               placeholder="nama@email.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -177,7 +187,7 @@ function AuthCard() {
               required
             />
 
-            <button className="authBtnNew" disabled={loading}>
+            <button className="authBtnNew" disabled={loading} type="submit">
               {loading ? "..." : mode === "login" ? "Masuk" : "Daftar"}
             </button>
 
@@ -244,9 +254,7 @@ export default function App() {
    DASHBOARD
 ========================= */
 function Dashboard({ user }) {
-  const todayStorageKey = useMemo(() => `daily_tasks_${todayKey()}`, []);
-  const templateKey = "task_template_v1";
-
+  const dayISO = useMemo(() => todayKey(), []);
   const [tab, setTab] = useState("today"); // today | template | recap
 
   const [template, setTemplate] = useState(DEFAULT_TEMPLATE);
@@ -258,6 +266,7 @@ function Dashboard({ user }) {
   const [newPriority, setNewPriority] = useState("med");
 
   const [recap, setRecap] = useState([]);
+  const [streak, setStreak] = useState(0);
 
   // ui
   const [qToday, setQToday] = useState("");
@@ -295,76 +304,283 @@ function Dashboard({ user }) {
     if (error) alert(error.message);
   }
 
-  // load template
-  useEffect(() => {
-    const raw = localStorage.getItem(templateKey);
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        setTemplate(parsed.map((t) => ({ ...t, priority: normalizePriority(t.priority) })));
-      }
-    } catch {}
-  }, []);
+  /* =========================
+     DB HELPERS (FIX: pakai userId param)
+  ========================= */
+  async function loadTemplateFromDB(userId) {
+    const { data, error } = await supabase
+      .from("user_templates")
+      .select("items")
+      .eq("user_id", userId)
+      .maybeSingle();
 
-  // save template
-  useEffect(() => {
-    localStorage.setItem(templateKey, JSON.stringify(template));
-  }, [template]);
+    if (error) throw error;
 
-  // load tasks hari ini
-  useEffect(() => {
-    const raw = localStorage.getItem(todayStorageKey);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          setTasks(parsed.map((t) => ({ ...t, priority: normalizePriority(t.priority) })));
-          return;
-        }
-      } catch {}
+    if (Array.isArray(data?.items)) {
+      return data.items.map((t) => ({ ...t, priority: normalizePriority(t.priority) }));
     }
-    setTasks(buildDailyFromTemplate(template));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [todayStorageKey]);
+    return null;
+  }
 
-  // save tasks hari ini
+  async function saveTemplateToDB(userId, nextTemplate) {
+    const payload = {
+      user_id: userId,
+      items: nextTemplate,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from("user_templates").upsert(payload, { onConflict: "user_id" });
+    if (error) throw error;
+  }
+
+  async function loadDailyFromDB(userId, day) {
+    const { data, error } = await supabase
+      .from("daily_tasks")
+      .select("items")
+      .eq("user_id", userId)
+      .eq("day", day)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (Array.isArray(data?.items)) {
+      return data.items.map((t) => ({ ...t, priority: normalizePriority(t.priority) }));
+    }
+    return null;
+  }
+
+  async function saveDailyToDB(userId, day, nextTasks) {
+    const payload = {
+      user_id: userId,
+      day,
+      items: nextTasks,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from("daily_tasks").upsert(payload, { onConflict: "user_id,day" });
+    if (error) throw error;
+  }
+
+  /* =========================
+     LOAD TEMPLATE (DB)
+  ========================= */
   useEffect(() => {
-    if (tasks.length === 0) return;
-    localStorage.setItem(todayStorageKey, JSON.stringify(tasks));
-  }, [todayStorageKey, tasks]);
+    let alive = true;
 
-  // recap build
+    (async () => {
+      try {
+        const t = await loadTemplateFromDB(user.id);
+        if (!alive) return;
+
+        if (t && t.length) {
+          setTemplate(t);
+        } else {
+          const seed = DEFAULT_TEMPLATE.map((x) => ({ ...x, id: crypto.randomUUID() }));
+          setTemplate(seed);
+          await saveTemplateToDB(user.id, seed);
+        }
+      } catch (e) {
+        console.log("loadTemplateFromDB error:", e);
+        setTemplate(DEFAULT_TEMPLATE.map((x) => ({ ...x, id: crypto.randomUUID() })));
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.id]);
+
+  /* =========================
+     SAVE TEMPLATE (DB)
+  ========================= */
+  useEffect(() => {
+    if (!template || template.length === 0) return;
+
+    (async () => {
+      try {
+        await saveTemplateToDB(user.id, template);
+      } catch (e) {
+        console.log("saveTemplateToDB error:", e);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [template, user.id]);
+
+  /* =========================
+     LOAD TODAY TASKS (DB)
+  ========================= */
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        const fromDB = await loadDailyFromDB(user.id, dayISO);
+        if (!alive) return;
+
+        if (fromDB && fromDB.length) {
+          setTasks(fromDB);
+        } else {
+          const seed = buildDailyFromTemplate(template);
+          setTasks(seed);
+          await saveDailyToDB(user.id, dayISO, seed);
+        }
+      } catch (e) {
+        console.log("loadDailyFromDB error:", e);
+        setTasks(buildDailyFromTemplate(template));
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayISO, user.id, template]);
+
+  /* =========================
+     SAVE TODAY TASKS (DB)
+  ========================= */
+  useEffect(() => {
+    if (!tasks || tasks.length === 0) return;
+
+    (async () => {
+      try {
+        await saveDailyToDB(user.id, dayISO, tasks);
+      } catch (e) {
+        console.log("saveDailyToDB error:", e);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, dayISO, user.id]);
+
+  /* =========================
+     RECAP (DB) - 7 days
+  ========================= */
   useEffect(() => {
     if (tab !== "recap") return;
 
-    const rows = getLastNDates(7).map((d) => {
-      const key = `daily_tasks_${dateKey(d)}`;
-      const raw = localStorage.getItem(key);
-      let total = 0;
-      let done = 0;
+    (async () => {
+      try {
+        const dates = getLastNDates(7).map((d) => dateKey(d));
+        const from = dates[dates.length - 1];
+        const to = dates[0];
 
-      if (raw) {
-        try {
-          const arr = JSON.parse(raw);
-          if (Array.isArray(arr)) {
-            total = arr.length;
-            done = arr.filter((t) => t?.done).length;
-          }
-        } catch {}
+        const { data, error } = await supabase
+          .from("daily_tasks")
+          .select("day, items")
+          .eq("user_id", user.id)
+          .gte("day", from)
+          .lte("day", to);
+
+        if (error) throw error;
+
+        const map = new Map((data || []).map((r) => [r.day, r.items]));
+
+        const rows = getLastNDates(7).map((d) => {
+          const k = dateKey(d);
+          const arr = map.get(k);
+          const total = Array.isArray(arr) ? arr.length : 0;
+          const done = Array.isArray(arr) ? arr.filter((t) => t?.done).length : 0;
+          const percent = total ? Math.round((done / total) * 100) : 0;
+          const fullDone = total > 0 && done === total;
+          return { date: new Date(d), total, done, percent, fullDone };
+        });
+
+        setRecap(rows);
+      } catch (e) {
+        console.log("recap db error:", e);
+        setRecap([]);
       }
+    })();
+  }, [tab, user.id]);
 
-      const percent = total ? Math.round((done / total) * 100) : 0;
-      const fullDone = total > 0 && done === total;
-      return { date: new Date(d), total, done, percent, fullDone };
-    });
+  /* =========================
+     STREAK (DB) - 30 days
+  ========================= */
+  useEffect(() => {
+    let alive = true;
 
-    setRecap(rows);
-  }, [tab, tasks]);
+    (async () => {
+      try {
+        const dates = getLastNDates(30).map((d) => dateKey(d));
+        const from = dates[dates.length - 1];
+        const to = dates[0];
 
+        const { data, error } = await supabase
+          .from("daily_tasks")
+          .select("day, items")
+          .eq("user_id", user.id)
+          .gte("day", from)
+          .lte("day", to);
+
+        if (error) throw error;
+
+        const map = new Map((data || []).map((r) => [r.day, r.items]));
+
+        let s = 0;
+        const last30 = getLastNDates(30); // hari ini dulu
+        for (let i = 0; i < last30.length; i++) {
+          const k = dateKey(last30[i]);
+          const arr = map.get(k);
+          const total = Array.isArray(arr) ? arr.length : 0;
+          const done = Array.isArray(arr) ? arr.filter((t) => t?.done).length : 0;
+          const fullDone = total > 0 && done === total;
+          if (fullDone) s++;
+          else break;
+        }
+
+        if (alive) setStreak(s);
+      } catch (e) {
+        console.log("streak db error:", e);
+        if (alive) setStreak(0);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [user.id, dayISO, tasks]);
+
+  /* =========================
+     UI CALC
+  ========================= */
   const doneCount = tasks.filter((t) => t.done).length;
   const progress = tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0;
 
+  const summary = useMemo(() => {
+    const undone = tasks.filter((t) => !t.done);
+    const done = tasks.filter((t) => t.done);
+    const counts = { high: 0, med: 0, low: 0 };
+    for (const t of undone) counts[normalizePriority(t.priority)]++;
+    return { total: tasks.length, undone: undone.length, done: done.length, high: counts.high, med: counts.med, low: counts.low };
+  }, [tasks]);
+
+  const filteredToday = useMemo(() => {
+    const qq = qToday.trim().toLowerCase();
+    let arr = tasks;
+
+    if (qq) arr = arr.filter((t) => t.title.toLowerCase().includes(qq));
+    if (statusFilter === "undone") arr = arr.filter((t) => !t.done);
+    if (statusFilter === "done") arr = arr.filter((t) => t.done);
+    if (priorityFilter !== "all") arr = arr.filter((t) => normalizePriority(t.priority) === priorityFilter);
+
+    if (sortUndoneFirst) arr = [...arr].sort((a, b) => Number(a.done) - Number(b.done));
+    return arr;
+  }, [tasks, qToday, statusFilter, priorityFilter, sortUndoneFirst]);
+
+  const filteredTemplate = useMemo(() => {
+    const qq = qTemplate.trim().toLowerCase();
+    let arr = template.map((t) => ({ ...t, priority: normalizePriority(t.priority) }));
+    if (qq) arr = arr.filter((t) => t.title.toLowerCase().includes(qq));
+    if (templatePriorityFilter !== "all") arr = arr.filter((t) => normalizePriority(t.priority) === templatePriorityFilter);
+    return arr;
+  }, [template, qTemplate, templatePriorityFilter]);
+
+  const recapEmpty = recap.every((r) => r.total === 0);
+
+  /* =========================
+     ACTIONS
+  ========================= */
   function toggleDone(id) {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
   }
@@ -457,64 +673,6 @@ function Dashboard({ user }) {
     setTemplate((prev) => prev.map((t) => (t.id === id ? { ...t, title: v, priority: p } : t)));
     cancelEditTemplate();
   }
-
-  const streak = useMemo(() => {
-    let s = 0;
-    for (let i = 0; i < 30; i++) {
-      const d = new Date();
-      d.setHours(12, 0, 0, 0);
-      d.setDate(d.getDate() - i);
-
-      const raw = localStorage.getItem(`daily_tasks_${dateKey(d)}`);
-      let total = 0;
-      let done = 0;
-      if (raw) {
-        try {
-          const arr = JSON.parse(raw);
-          if (Array.isArray(arr)) {
-            total = arr.length;
-            done = arr.filter((t) => t?.done).length;
-          }
-        } catch {}
-      }
-
-      const fullDone = total > 0 && done === total;
-      if (fullDone) s++;
-      else break;
-    }
-    return s;
-  }, [tasks, tab, recap]);
-
-  const summary = useMemo(() => {
-    const undone = tasks.filter((t) => !t.done);
-    const done = tasks.filter((t) => t.done);
-    const counts = { high: 0, med: 0, low: 0 };
-    for (const t of undone) counts[normalizePriority(t.priority)]++;
-    return { total: tasks.length, undone: undone.length, done: done.length, high: counts.high, med: counts.med, low: counts.low };
-  }, [tasks]);
-
-  const filteredToday = useMemo(() => {
-    const qq = qToday.trim().toLowerCase();
-    let arr = tasks;
-
-    if (qq) arr = arr.filter((t) => t.title.toLowerCase().includes(qq));
-    if (statusFilter === "undone") arr = arr.filter((t) => !t.done);
-    if (statusFilter === "done") arr = arr.filter((t) => t.done);
-    if (priorityFilter !== "all") arr = arr.filter((t) => normalizePriority(t.priority) === priorityFilter);
-
-    if (sortUndoneFirst) arr = [...arr].sort((a, b) => Number(a.done) - Number(b.done));
-    return arr;
-  }, [tasks, qToday, statusFilter, priorityFilter, sortUndoneFirst]);
-
-  const filteredTemplate = useMemo(() => {
-    const qq = qTemplate.trim().toLowerCase();
-    let arr = template.map((t) => ({ ...t, priority: normalizePriority(t.priority) }));
-    if (qq) arr = arr.filter((t) => t.title.toLowerCase().includes(qq));
-    if (templatePriorityFilter !== "all") arr = arr.filter((t) => normalizePriority(t.priority) === templatePriorityFilter);
-    return arr;
-  }, [template, qTemplate, templatePriorityFilter]);
-
-  const recapEmpty = recap.every((r) => r.total === 0);
 
   return (
     <div className="container">
@@ -676,7 +834,9 @@ function Dashboard({ user }) {
               {filteredToday.length === 0 ? (
                 <div className="empty">
                   <div className="emptyTitle">Tidak ada hasil</div>
-                  <div className="emptySub">{tasks.length === 0 ? "Tambah tugas atau klik “Reset dari Template”." : "Coba ubah filter atau kata kunci."}</div>
+                  <div className="emptySub">
+                    {tasks.length === 0 ? "Tambah tugas atau klik “Reset dari Template”." : "Coba ubah filter atau kata kunci."}
+                  </div>
                 </div>
               ) : (
                 filteredToday.map((t) => (
@@ -750,7 +910,9 @@ function Dashboard({ user }) {
               </select>
 
               <button className="btn primary btnAdd" type="submit">
-                <span className="btnIcon" aria-hidden="true">＋</span>
+                <span className="btnIcon" aria-hidden="true">
+                  ＋
+                </span>
                 <span>Tambah</span>
               </button>
             </form>
@@ -805,7 +967,7 @@ function Dashboard({ user }) {
           <>
             <div className="row" style={{ justifyContent: "space-between" }}>
               <div className="muted">Rekap 7 hari terakhir</div>
-              <button className="btn" onClick={() => downloadTextFile(`rekap_7hari_${todayKey()}.csv`, toCsv(recap))}>
+              <button className="btn" type="button" onClick={() => downloadTextFile(`rekap_7hari_${todayKey()}.csv`, toCsv(recap))}>
                 Export CSV
               </button>
             </div>
@@ -931,7 +1093,7 @@ body::before {
   color: var(--text);
   outline: none;
   height: 46px;
-  font-size: 15px;
+  font-size: 16px; /* fix iOS zoom */
 }
 .input::placeholder { color: rgba(255, 255, 255, 0.45); }
 
@@ -1113,6 +1275,7 @@ body::before {
   color: rgba(255,255,255,0.92);
   outline: none;
   transition: 0.18s ease;
+  font-size: 16px; /* fix iOS zoom */
 }
 .authInputNew::placeholder{ color: rgba(255,255,255,0.45); }
 .authInputNew:focus{
@@ -1180,19 +1343,9 @@ body::before {
   .authTitleNew{ font-size: 20px; }
   .authCardNew{ padding: 16px; }
 }
-}
-/* === FIX MOBILE INPUT AUTO ZOOM (iOS / Android) === */
-input,
-select,
-textarea,
-.input,
-.select,
-.authInput,
-.authForm input {
-  font-size: 16px !important;
-}
 
-
+/* iOS text-size adjust */
+html { -webkit-text-size-adjust: 100%; }
     `}</style>
   );
-
+}

@@ -1183,3 +1183,15 @@ body::before {
     `}</style>
   );
 }
+/* === FIX MOBILE INPUT AUTO ZOOM (iOS / Android) === */
+input,
+select,
+textarea,
+.input,
+.select,
+.authInput,
+.authForm input {
+  font-size: 16px !important;
+}
+
+

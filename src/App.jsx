@@ -992,9 +992,13 @@ function Dashboard({ user }) {
    GLOBAL STYLES (ALL-IN-ONE)
    FIX: iOS input no-zoom
 ========================= */
+/* =========================
+   GLOBAL STYLES (ALL-IN-ONE)
+   FIX: iOS input no-zoom + safe-area
+========================= */
 function GlobalStyles() {
   return (
-    <style>{
+    <style>{`
 :root {
   --bg: #0b0f19;
   --card: rgba(255, 255, 255, 0.06);
@@ -1029,21 +1033,21 @@ body::before {
     var(--bg);
 }
 
-/* ===== iOS: prevent zoom on input focus ===== */
-input, textarea, select {
-  font-size: 16px !important;
-}
+/* ===== iOS: prevent zoom on input focus =====
+   iOS Safari akan zoom kalau font-size < 16px pada input/select/textarea.
+*/
+input, textarea, select { font-size: 16px !important; }
 @supports (-webkit-touch-callout: none) {
-  input, textarea, select {
-    font-size: 16px !important;
-  }
+  input, textarea, select { font-size: 16px !important; }
 }
 button, a { touch-action: manipulation; }
 
 .container {
   max-width: 980px;
   margin: 32px auto;
-  padding: 0 max(18px, env(safe-area-inset-left)) 0 max(18px, env(safe-area-inset-right));
+  padding: 0 18px;
+  padding-left: max(18px, env(safe-area-inset-left));
+  padding-right: max(18px, env(safe-area-inset-right));
 }
 
 .header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
@@ -1092,6 +1096,7 @@ button, a { touch-action: manipulation; }
   color: var(--text);
   outline: none;
   height: 46px;
+  font-size: 16px; /* iOS no-zoom */
 }
 .input::placeholder { color: rgba(255, 255, 255, 0.45); }
 
@@ -1273,6 +1278,7 @@ button, a { touch-action: manipulation; }
   color: rgba(255,255,255,0.92);
   outline: none;
   transition: 0.18s ease;
+  font-size: 16px; /* iOS no-zoom */
 }
 .authInputNew::placeholder{ color: rgba(255,255,255,0.45); }
 .authInputNew:focus{
@@ -1315,7 +1321,10 @@ button, a { touch-action: manipulation; }
 /* responsive */
 @media (max-width: 720px) {
   .title { font-size: 24px; }
-  .container { padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
+  .container {
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+  }
   .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pill { margin-left: 0; }
   .input, .select { min-width: 100%; width: 100%; }
@@ -1340,6 +1349,9 @@ button, a { touch-action: manipulation; }
   .authTitleNew{ font-size: 20px; }
   .authCardNew{ padding: 16px; }
 }
+
+/* iOS text-size adjust */
+html { -webkit-text-size-adjust: 100%; }
     `}</style>
   );
 }

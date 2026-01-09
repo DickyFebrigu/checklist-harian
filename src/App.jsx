@@ -171,7 +171,7 @@ function AuthCard() {
               inputMode="email"
               autoCapitalize="none"
               autoCorrect="off"
-              placeholder="fauziyah@emailmu.com"
+              placeholder="fauziyah@email.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required

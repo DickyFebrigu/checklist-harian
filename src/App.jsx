@@ -51,13 +51,7 @@ function toCsv(rows) {
   const lines = [
     header.join(","),
     ...rows.map((r) =>
-      [
-        escape(dateKey(r.date)),
-        escape(r.done),
-        escape(r.total),
-        escape(r.percent),
-        escape(r.fullDone ? "yes" : "no"),
-      ].join(",")
+      [escape(dateKey(r.date)), escape(r.done), escape(r.total), escape(r.percent), escape(r.fullDone ? "yes" : "no")].join(",")
     ),
   ];
   return lines.join("\n");
@@ -99,7 +93,13 @@ function Modal({ open, title, desc, confirmText = "Ya", cancelText = "Batal", on
   if (!open) return null;
   return (
     <div className="modalOverlay" onMouseDown={onClose} role="presentation">
-      <div className="modal" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
+      <div
+        className="modal"
+        onMouseDown={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
         <div className="modalTitle">{title}</div>
         {desc ? <div className="modalDesc">{desc}</div> : null}
         <div className="modalActions">
@@ -305,30 +305,17 @@ function Dashboard({ user }) {
   }
 
   /* =========================
-     DB HELPERS (FIX: pakai userId param)
+     DB HELPERS
   ========================= */
   async function loadTemplateFromDB(userId) {
-    const { data, error } = await supabase
-      .from("user_templates")
-      .select("items")
-      .eq("user_id", userId)
-      .maybeSingle();
-
+    const { data, error } = await supabase.from("user_templates").select("items").eq("user_id", userId).maybeSingle();
     if (error) throw error;
-
-    if (Array.isArray(data?.items)) {
-      return data.items.map((t) => ({ ...t, priority: normalizePriority(t.priority) }));
-    }
+    if (Array.isArray(data?.items)) return data.items.map((t) => ({ ...t, priority: normalizePriority(t.priority) }));
     return null;
   }
 
   async function saveTemplateToDB(userId, nextTemplate) {
-    const payload = {
-      user_id: userId,
-      items: nextTemplate,
-      updated_at: new Date().toISOString(),
-    };
-
+    const payload = { user_id: userId, items: nextTemplate, updated_at: new Date().toISOString() };
     const { error } = await supabase.from("user_templates").upsert(payload, { onConflict: "user_id" });
     if (error) throw error;
   }
@@ -340,23 +327,13 @@ function Dashboard({ user }) {
       .eq("user_id", userId)
       .eq("day", day)
       .maybeSingle();
-
     if (error) throw error;
-
-    if (Array.isArray(data?.items)) {
-      return data.items.map((t) => ({ ...t, priority: normalizePriority(t.priority) }));
-    }
+    if (Array.isArray(data?.items)) return data.items.map((t) => ({ ...t, priority: normalizePriority(t.priority) }));
     return null;
   }
 
   async function saveDailyToDB(userId, day, nextTasks) {
-    const payload = {
-      user_id: userId,
-      day,
-      items: nextTasks,
-      updated_at: new Date().toISOString(),
-    };
-
+    const payload = { user_id: userId, day, items: nextTasks, updated_at: new Date().toISOString() };
     const { error } = await supabase.from("daily_tasks").upsert(payload, { onConflict: "user_id,day" });
     if (error) throw error;
   }
@@ -396,7 +373,6 @@ function Dashboard({ user }) {
   ========================= */
   useEffect(() => {
     if (!template || template.length === 0) return;
-
     (async () => {
       try {
         await saveTemplateToDB(user.id, template);
@@ -442,7 +418,6 @@ function Dashboard({ user }) {
   ========================= */
   useEffect(() => {
     if (!tasks || tasks.length === 0) return;
-
     (async () => {
       try {
         await saveDailyToDB(user.id, dayISO, tasks);
@@ -518,7 +493,7 @@ function Dashboard({ user }) {
         const map = new Map((data || []).map((r) => [r.day, r.items]));
 
         let s = 0;
-        const last30 = getLastNDates(30); // hari ini dulu
+        const last30 = getLastNDates(30);
         for (let i = 0; i < last30.length; i++) {
           const k = dateKey(last30[i]);
           const arr = map.get(k);
@@ -863,7 +838,9 @@ function Dashboard({ user }) {
                         <div className={`itemTitle ${t.done ? "done" : ""}`}>
                           <div className="titleText">{t.title}</div>
                           <div className="metaRow">
-                            <span className={`badge badge-${normalizePriority(t.priority)}`}>{PRIORITY_LABEL[normalizePriority(t.priority)]}</span>
+                            <span className={`badge badge-${normalizePriority(t.priority)}`}>
+                              {PRIORITY_LABEL[normalizePriority(t.priority)]}
+                            </span>
                           </div>
                         </div>
 
@@ -1013,10 +990,11 @@ function Dashboard({ user }) {
 
 /* =========================
    GLOBAL STYLES (ALL-IN-ONE)
+   FIX: iOS input no-zoom
 ========================= */
 function GlobalStyles() {
   return (
-    <style>{`
+    <style>{
 :root {
   --bg: #0b0f19;
   --card: rgba(255, 255, 255, 0.06);
@@ -1027,14 +1005,18 @@ function GlobalStyles() {
   --shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
   --radius: 18px;
 }
+
 * { box-sizing: border-box; }
 html, body { height: 100%; }
+html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
   color: var(--text);
   background: var(--bg);
 }
+
+/* background glow */
 body::before {
   content: "";
   position: fixed;
@@ -1046,7 +1028,24 @@ body::before {
     radial-gradient(900px 700px at 50% 90%, rgba(16, 185, 129, 0.25), transparent 60%),
     var(--bg);
 }
-.container { max-width: 980px; margin: 32px auto; padding: 0 18px; }
+
+/* ===== iOS: prevent zoom on input focus ===== */
+input, textarea, select {
+  font-size: 16px !important;
+}
+@supports (-webkit-touch-callout: none) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+}
+button, a { touch-action: manipulation; }
+
+.container {
+  max-width: 980px;
+  margin: 32px auto;
+  padding: 0 max(18px, env(safe-area-inset-left)) 0 max(18px, env(safe-area-inset-right));
+}
+
 .header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .title { margin: 0; font-size: 30px; letter-spacing: 0.2px; }
 .subtitle { margin-top: 6px; color: var(--muted); font-size: 13px; }
@@ -1093,7 +1092,6 @@ body::before {
   color: var(--text);
   outline: none;
   height: 46px;
-  font-size: 16px; /* fix iOS zoom */
 }
 .input::placeholder { color: rgba(255, 255, 255, 0.45); }
 
@@ -1275,7 +1273,6 @@ body::before {
   color: rgba(255,255,255,0.92);
   outline: none;
   transition: 0.18s ease;
-  font-size: 16px; /* fix iOS zoom */
 }
 .authInputNew::placeholder{ color: rgba(255,255,255,0.45); }
 .authInputNew:focus{
@@ -1318,7 +1315,7 @@ body::before {
 /* responsive */
 @media (max-width: 720px) {
   .title { font-size: 24px; }
-  .container { padding: 0 14px; }
+  .container { padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
   .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pill { margin-left: 0; }
   .input, .select { min-width: 100%; width: 100%; }
@@ -1343,9 +1340,6 @@ body::before {
   .authTitleNew{ font-size: 20px; }
   .authCardNew{ padding: 16px; }
 }
-
-/* iOS text-size adjust */
-html { -webkit-text-size-adjust: 100%; }
     `}</style>
   );
 }
